@@ -1,0 +1,56 @@
+name: Daily Refresh
+
+on:
+  schedule:
+    - cron: "17 07 * * *"   # runs daily at 07:17 UTC
+  workflow_dispatch:         # allows manual run
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-refresh
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Option A (default): keep a tiny timestamp file inside .github/
+      # If you prefer to show the date in README instead, add the literal
+      # string "<!-- heartbeat -->" anywhere in your README.md and this
+      # job will update that line instead of creating the hidden file.
+      - name: Update heartbeat
+        shell: bash
+        run: |
+          set -e
+          TODAY="$(date -u +'%Y-%m-%d')"
+          if [ -f README.md ] && grep -q "<!-- heartbeat -->" README.md; then
+            # Update the heartbeat marker inline in README.md
+            perl -0777 -pe "s/<!-- heartbeat -->.*?<!-- \/heartbeat -->/<!-- heartbeat --> ${TODAY} <!-- \/heartbeat -->/s" \
+              -i README.md || {
+              # If the closing marker isn't there yet, append a full marker once
+              echo "" >> README.md
+              echo "<!-- heartbeat --> ${TODAY} <!-- /heartbeat -->" >> README.md
+            }
+            TARGET="README.md"
+          else
+            mkdir -p .github
+            echo "Daily refresh (UTC date): ${TODAY}" > .github/.daily-heartbeat
+            TARGET=".github/.daily-heartbeat"
+          fi
+          echo "Touched: ${TARGET}"
+
+      - name: Commit if changed
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "chore: daily refresh"
+            git push
+          else
+            echo "No changes to commit."
+          fi
